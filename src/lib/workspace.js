@@ -20,17 +20,32 @@ export async function loadWorkspace(client, userId) {
     .select('id, full_name, facility_id, role, account_status')
     .eq('id', userId).maybeSingle()
   if (error) throw new Error('We could not load your account. Please try again.')
+  if (!profile) {
+    const { data: canRegister, error: registrationError } = await client.rpc('can_register_facility')
+    if (registrationError || typeof canRegister !== 'boolean') throw new Error('We could not check your account. Please try again.')
+    if (canRegister) return { needsRegistration: true }
+  }
   if (!profile || profile.account_status !== 'ACTIVE' || !roleLabels[profile.role]) {
     throw new Error('Your account has no active workspace. Please contact your administrator.')
   }
   if (profile.role === 'PLATFORM_ADMIN') return { profile, facility: null }
   if (!profile.facility_id) throw new Error('Your account has no facility. Please contact your administrator.')
-  const { data: facility, error: facilityError } = await client.from('facilities')
-    .select('id, name, facility_type, address, operational_status, verification_status')
+  let { data: facility, error: facilityError } = await client.from('facility_directory')
+    .select('id, name, facility_type, address, latitude, longitude, image_url, operational_status, verification_status')
     .eq('id', profile.facility_id).maybeSingle()
+  if (facilityError && ['42P01', 'PGRST205'].includes(facilityError.code)) {
+    const fallback = await client.from('facilities').select('id, name, facility_type, address, operational_status')
+      .eq('id', profile.facility_id).maybeSingle()
+    facility = fallback.data ? { ...fallback.data, verification_status: 'UNVERIFIED' } : null
+    facilityError = fallback.error
+  }
   if (facilityError) throw new Error('We could not load your facility. Please try again.')
   if (!facility || facility.operational_status !== 'ACTIVE') {
     throw new Error('Your facility is unavailable or inactive. Please contact your administrator.')
   }
-  return { profile, facility }
+  const { data: setupComplete, error: setupError } = await client.rpc('facility_setup_complete')
+  if (setupError || typeof setupComplete !== 'boolean') {
+    throw new Error('We could not check your facility setup. Please try again.')
+  }
+  return { profile, facility, setupComplete }
 }

@@ -42,3 +42,11 @@ The matching RPC checks the caller's active facility and role, then aggregates o
 Matching does not reserve or guarantee stock and does not assess quality, clinical suitability, regulatory compliance or delivery. The demo coordinates in the demo_coordinates migration are invented for fictional facilities and must never be presented as real locations. The deployed demo currently has one supplier; local tests include multiple suppliers, insufficient stock, stale data, inactive facilities and expired batches.
 
 Run `NODE_PATH="$HYPER_SCRATCH_DIR/node_modules" node supabase/tests/medicine_matching.cjs` for the local matching checks. Authenticated end-to-end comparisons across multiple real Supabase accounts remain outstanding.
+
+## Facility profiles and manual verification
+
+Facility administrators can submit their own public profile and private licence number, authority and expiry via `submit_facility_profile`. Every submission resets the profile to `UNVERIFIED`. Platform administrators can create, edit or deactivate profiles via `platform_admin_save_facility`; deactivation is blocked while pending or approved requests involve the facility. A change to name, type, address or coordinates resets verification. Licence information and its history are readable only to the facility's administrator and platform administrators; the public directory excludes those details.
+
+Only platform administrators can approve or reject a submission using `review_facility_verification`, with a non-empty note documenting the manual record check. A verified decision requires a current unexpired licence. Reviews and profile changes are audited. `facility_directory` and matching responses mask expired verification as `UNVERIFIED`; a MediNexus review is not a regulator-issued accreditation. See `supabase/FACILITY_CONTRACT.md` for the complete API.
+
+After installing `@electric-sql/pglite` in an isolated test environment, run `NODE_PATH="$HYPER_SCRATCH_DIR/node_modules" node supabase/tests/facility_verification.cjs`. The suite applies the foundation, transactional, matching, photo-proof and facility migrations locally with Auth and Storage stubs. It does not replace real authenticated Supabase integration tests. A platform administrator account must be provisioned separately; no self-registration or staff onboarding is provided.

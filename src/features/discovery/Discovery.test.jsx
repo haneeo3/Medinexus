@@ -11,12 +11,12 @@ const medicines = [
 ]
 const match = {
   facility_id:'s1', facility_name:'Demo Supplier', facility_type:'PHARMACY', address:'Fictional Road', verification_status:'UNVERIFIED',
-  available_quantity:120, requested_quantity:100, unit_of_measure:'tablet', distance_km:5.4, last_updated_at:'2026-11-05T07:00:00Z',
-  quantity_score:100, distance_score:94.6, freshness_score:91, match_score:96.6,
-  reasons:['Sufficient eligible recorded quantity','Approximately 5.4 km away'], warnings:['Availability requires confirmation'], stale:false, availability_status:'REQUIRES_CONFIRMATION',
+  available_quantity:120, requested_quantity:100, unit_of_measure:'tablet', last_updated_at:'2026-11-05T07:00:00Z',
+  quantity_score:100, freshness_score:91, match_score:97.4,
+  reasons:['Sufficient eligible recorded quantity'], warnings:['Availability requires confirmation'], stale:false, availability_status:'REQUIRES_CONFIRMATION',
 }
 const partial = { ...match, facility_id:'s2', facility_name:'Small Supplier', available_quantity:25, match_score:null, reasons:['Only 25 units reported'], warnings:['Insufficient quantity'] }
-const response = { medicine_id:'m1', requested_quantity:100, matches:[match], insufficient:[partial], scoring:{ quantity_weight:.5, distance_weight:.3, freshness_weight:.2, stale_after_hours:168, distance_max_km:100, missing_distance_score:50 } }
+const response = { medicine_id:'m1', requested_quantity:100, matches:[match], insufficient:[partial], scoring:{ quantity_weight:.71429, freshness_weight:.28571, stale_after_hours:168 } }
 const facility = { id:'clinic-1', name:'MediNexus Demo Clinic' }
 let client
 beforeEach(() => {
@@ -48,12 +48,37 @@ describe('medicine discovery', () => {
     await waitFor(() => expect(client.rpc).toHaveBeenCalledWith('find_medicine_matches', { p_requesting_facility_id:'clinic-1',p_medicine_id:'m1',p_requested_quantity:100 }))
     const card = (await screen.findByRole('heading',{name:'Demo Supplier'})).closest('article')
     expect(within(card).getByText('120 tablet')).toBeInTheDocument()
-    expect(within(card).getByText('5.4 km')).toBeInTheDocument()
+    expect(within(card).getByText(/Fictional Road/)).toBeInTheDocument()
+    expect(within(card).queryByText(/distance|coordinates| km/i)).not.toBeInTheDocument()
     expect(within(card).getByText('Sufficient eligible recorded quantity')).toBeInTheDocument()
     expect(within(card).getByText('Availability requires confirmation')).toBeInTheDocument()
-    expect(screen.getByText(/quantity \(50%\), distance \(30%\) and freshness \(20%\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/quantity \(71\.429%\) and freshness \(28\.571%\)/i)).toBeInTheDocument()
     fireEvent.click(within(card).getByText('View score breakdown'))
-    expect(within(card).getByText('94.6 / 100')).toBeInTheDocument()
+    expect(within(card).getByText('91.0 / 100')).toBeInTheDocument()
+    expect(within(card).queryByText('Distance')).not.toBeInTheDocument()
+  })
+  it('shows current reviewed verification and facility image from the directory', async () => {
+    client.from.mockImplementation(() => {
+      const query = { select: () => query, order: () => query, range: async (start, end) => ({ data: medicines.slice(start, end + 1), error: null }), in: async () => ({ data: [{ id: 's1', image_url: 'https://example.test/facility.jpg', verification_status: 'VERIFIED' }, { id: 's2', image_url: null, verification_status: 'UNVERIFIED' }], error: null }) }
+      return query
+    })
+    await renderSearch(); await searchMedicine()
+    const card = (await screen.findByRole('heading', { name: 'Demo Supplier' })).closest('article')
+    expect(await within(card).findByText(/Verified by MediNexus/)).toBeInTheDocument()
+    const photo = within(card).getByRole('img', { name: 'Demo Supplier facility' })
+    expect(photo).toHaveAttribute('src', 'https://example.test/facility.jpg')
+    fireEvent.error(photo)
+    expect(within(card).getByLabelText('Facility photo unavailable')).toBeInTheDocument()
+    const partialCard = screen.getByRole('heading', { name: 'Small Supplier' }).closest('article')
+    expect(within(partialCard).getByText(/Unverified/)).toBeInTheDocument()
+    expect(within(partialCard).getByLabelText('Facility photo unavailable')).toBeInTheDocument()
+  })
+  it('does not trust a stale matching badge when directory lookup fails', async () => {
+    client.rpc.mockResolvedValue({ data: { ...response, matches: [{ ...match, verification_status: 'VERIFIED' }] }, error: null })
+    await renderSearch(); await searchMedicine()
+    const card = (await screen.findByRole('heading', { name: 'Demo Supplier' })).closest('article')
+    expect(within(card).getByText(/Unverified/)).toBeInTheDocument()
+    expect(within(card).queryByText(/Verified by MediNexus/)).not.toBeInTheDocument()
   })
   it('separates insufficient suppliers from full matches', async () => {
     await renderSearch()
@@ -64,13 +89,13 @@ describe('medicine discovery', () => {
     expect(within(section).getAllByText('Insufficient quantity').length).toBeGreaterThan(0)
     expect(within(section).queryByText('match score / 100')).not.toBeInTheDocument()
   })
-  it('shows missing distance and stale-stock warnings without inventing distance', async () => {
-    client.rpc.mockResolvedValue({ data:{...response,matches:[{...match,distance_km:null,stale:true,warnings:['Inventory is stale','Supplier confirmation required']}],insufficient:[]},error:null })
+  it('shows stale-stock warnings without distance information', async () => {
+    client.rpc.mockResolvedValue({ data:{...response,matches:[{...match,stale:true,warnings:['Inventory is stale','Supplier confirmation required']}],insufficient:[]},error:null })
     await renderSearch()
     await searchMedicine()
-    expect(await screen.findByText('Configured fallback used')).toBeInTheDocument()
-    expect(screen.getByText('Inventory is stale')).toBeInTheDocument()
+    expect(await screen.findByText('Inventory is stale')).toBeInTheDocument()
     expect(screen.getByText('Stale information')).toBeInTheDocument()
+    expect(screen.queryByText(/distance|coordinates/i)).not.toBeInTheDocument()
   })
   it('explains when no supplier can meet the quantity', async () => {
     client.rpc.mockResolvedValue({ data:{...response,matches:[],insufficient:[]},error:null })

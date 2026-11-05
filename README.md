@@ -1,6 +1,6 @@
 # MediNexus
 
-A healthcare facility medicine-availability and supply-coordination MVP. The React app includes authentication, facility-scoped inventory and explainable medicine discovery. Supply request screens are still in development.
+A healthcare facility medicine-availability and supply-coordination MVP. The React app includes authentication, facility-scoped inventory, explainable medicine discovery, supply requests, and facility profiles with manual licence review.
 
 ## Run locally
 
@@ -10,7 +10,7 @@ A healthcare facility medicine-availability and supply-coordination MVP. The Rea
 
 Never put a Supabase secret or `service_role` key in a `VITE_` variable: these variables are bundled into browser code. `.env.local` is ignored by Git. The same public URL and publishable key must be configured in Netlify before a deployed build.
 
-Sign-in requires an existing Supabase Auth user and a corresponding active `profiles` row. Facility staff must also belong to an active facility. Self-registration and staff onboarding have not yet been built. The app reads profile and facility access from the database; database RLS and RPC permissions enforce security independently of the UI.
+A new facility administrator creates a Supabase Auth account first. If email confirmation is enabled, they confirm their email and sign in, then provide their name, facility details, address and licence information. The server creates their facility and administrator profile together, with the facility Unverified until manual review. Existing facility administrators who have not submitted their licence are prompted to complete setup; other staff wait until this is done. Staff account creation has not yet been built. The setup screen is an app navigation requirement, not an additional database authorization policy. The app reads profile and facility access from the database; database RLS and RPC permissions enforce security independently of the UI. Facility locations are written addresses; medicine matching does not calculate or use distance.
 
 ## Checks
 

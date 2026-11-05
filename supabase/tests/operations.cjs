@@ -234,10 +234,11 @@ async function main() {
     assert.deepEqual(afterFulfil[supplierLater], [3, 0])
     assert.deepEqual(afterFulfil[supplierExpired], [100, 0])
     const fulfilMovements = await rows("select inventory_batch_id,movement_type,quantity,supply_request_id,performed_by from public.stock_movements where supply_request_id=$1 order by inventory_batch_id", [fulfilRequest])
-    assert.deepEqual(fulfilMovements.map(r => [r.inventory_batch_id,r.movement_type,r.quantity,r.supply_request_id,r.performed_by]), [
+    const expectedFulfilMovements = [
       [supplierEarly,'FULFILMENT_OUT',5,fulfilRequest,ids.supplierStaff],
       [supplierLater,'FULFILMENT_OUT',5,fulfilRequest,ids.supplierStaff],
-    ])
+    ].sort((a,b) => a[0].localeCompare(b[0]))
+    assert.deepEqual(fulfilMovements.map(r => [r.inventory_batch_id,r.movement_type,r.quantity,r.supply_request_id,r.performed_by]), expectedFulfilMovements)
     events = await rows('select event_type, previous_status, new_status, actor_id from public.request_events where supply_request_id=$1 order by created_at,id', [fulfilRequest])
     assert.deepEqual(events.map(r => [r.event_type,r.previous_status,r.new_status,r.actor_id]), [
       ['CREATED',null,'PENDING',ids.reqStaff], ['APPROVED','PENDING','APPROVED',ids.supplierStaff], ['FULFILLED','APPROVED','FULFILLED',ids.supplierStaff],
