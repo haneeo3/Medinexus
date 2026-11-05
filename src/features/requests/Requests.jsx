@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import RequestForm from './RequestForm.jsx'
 import RequestHistory from './RequestHistory.jsx'
 import RequestPhoto from './RequestPhoto.jsx'
+import ReceiptForm from './ReceiptForm.jsx'
 import { uploadRequestPhoto, validatePhoto } from './proof.js'
 import { isKnownMutationError, loadSupplyRequests, requestErrorMessage } from './requests.js'
 import './requests.css'
@@ -77,18 +78,18 @@ function RequestCard({ request, client, facilityId, role, busy, actionsBlocked, 
         {photoError && <p role="alert">{photoError}</p>}
         <button type="button" className="button button-primary" disabled={isBusy || Boolean(busy) || actionsBlocked} onClick={() => { const error = validatePhoto(photo); if (error) setPhotoError(error); else onAction(request, 'fulfil', photo) }} aria-label={`Record fulfilment for request ${request.id}`}>{isBusy ? 'Processing…' : 'Upload photo and record fulfilment'}</button>
       </div>}
-      {actions.receive && <button type="button" className="button button-primary" disabled={isBusy || Boolean(busy) || actionsBlocked} onClick={() => onAction(request, 'receive')} aria-label={`Confirm receipt for request ${request.id}`}>{isBusy ? 'Processing…' : 'Confirm receipt'}</button>}
+      {actions.receive && <ReceiptForm request={request} disabled={Boolean(busy) || actionsBlocked} onSubmit={(batches) => onAction(request, 'receive', batches)} />}
       {actions.cancel && <button type="button" className="button button-outline request-danger-action" disabled={isBusy || Boolean(busy) || actionsBlocked} onClick={() => onAction(request, 'cancel')} aria-label={`Cancel request ${request.id}`}>{isBusy ? 'Processing…' : 'Cancel request'}</button>}
       {actionsBlocked && <p className="request-action-lock">Actions are blocked until you successfully refresh the list.</p>}
     </div>}
   </article>
 }
 
-export default function Requests({ client, facility, role, draft, onDraftCleared, onBusyChange }) {
+export default function Requests({ client, facility, role, draft, onDraftCleared, onBusyChange, initialTab = 'incoming' }) {
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [tab, setTab] = useState('incoming')
+  const [tab, setTab] = useState(() => initialTab === 'outgoing' ? 'outgoing' : 'incoming')
   const [success, setSuccess] = useState('')
   const [mutationError, setMutationError] = useState('')
   const [uncertain, setUncertain] = useState(false)
@@ -126,9 +127,9 @@ export default function Requests({ client, facility, role, draft, onDraftCleared
     ? request.supplying_facility_id === facility.id
     : request.requesting_facility_id === facility.id), [requests, tab, facility.id])
 
-  async function performAction(request, action, photo = null) {
+  async function performAction(request, action, payload = null) {
     if (mutationLock.current || busy || uncertain) return
-    const labels = { approve: 'approve this request', reject: 'reject this request', fulfil: 'record supplier fulfilment for this request', receive: 'confirm that your facility received this medicine', cancel: 'cancel this request' }
+    const labels = { approve: 'approve this request', reject: 'reject this request', fulfil: 'record supplier fulfilment for this request', receive: 'confirm receipt and add these batches to your facility’s inventory', cancel: 'cancel this request' }
     if (!window.confirm(`Are you sure you want to ${labels[action]}? Approval reserves stock. Recording fulfilment records supplier stock leaving and does not confirm physical delivery.`)) return
     let notes = null
     if (action === 'reject' || action === 'cancel') {
@@ -139,7 +140,7 @@ export default function Requests({ client, facility, role, draft, onDraftCleared
     const calls = {
       approve: ['approve_supply_request', { p_request_id: request.id }],
       reject: ['reject_supply_request', { p_request_id: request.id, p_notes: notes }],
-      receive: ['confirm_supply_request_receipt', { p_request_id: request.id }],
+      receive: ['confirm_supply_request_receipt_with_inventory', { p_request_id: request.id, p_batches: payload }],
       cancel: ['cancel_supply_request', { p_request_id: request.id, p_notes: notes }],
     }
     mutationLock.current = true
@@ -150,7 +151,7 @@ export default function Requests({ client, facility, role, draft, onDraftCleared
     let uploading = action === 'fulfil'
     try {
       if (uploading) {
-        const path = await uploadRequestPhoto(client, request.id, photo)
+        const path = await uploadRequestPhoto(client, request.id, payload)
         uploading = false
         calls.fulfil = ['fulfil_supply_request_with_proof', { p_request_id: request.id, p_object_path: path }]
       }
@@ -171,7 +172,7 @@ export default function Requests({ client, facility, role, draft, onDraftCleared
         setMutationError('The outcome is uncertain. This operation may have completed. Further actions are blocked until you refresh the list and confirm the current status.')
         return
       }
-      setSuccess({ approve: 'Request approved and stock reserved.', reject: 'Request rejected.', fulfil: 'Supplier fulfilment recorded. The requesting facility can now confirm receipt.', receive: 'Receipt confirmed.', cancel: 'Request cancelled.' }[action])
+      setSuccess({ approve: 'Request approved and stock reserved.', reject: 'Request rejected.', fulfil: 'Supplier fulfilment recorded. The requesting facility can now confirm receipt.', receive: 'Receipt confirmed and medicine added to your inventory.', cancel: 'Request cancelled.' }[action])
       await reload({ unlock: true, preserveSuccess: true })
     } catch (error) {
       if (uploading) {

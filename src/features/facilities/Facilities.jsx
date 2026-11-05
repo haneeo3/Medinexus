@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useState } from 'react'
+import { uploadFacilityPhoto } from './facilityPhoto.js'
+import { validatePhoto } from '../requests/proof.js'
 import './facilities.css'
 
-const FIELDS = 'id, name, facility_type, address, latitude, longitude, image_url, verification_status, verification_valid_until, operational_status, created_at, updated_at'
+const FIELDS = 'id, name, facility_type, address, latitude, longitude, image_url, verification_status, verification_valid_until, operational_status, created_at, updated_at, facility_type_details'
 const LICENCE_FIELDS = 'facility_id, license_number, license_authority, license_expiry_date, submitted_at, updated_at'
-const blankFacility = { name: '', facility_type: 'PHARMACY', address: '', latitude: '', longitude: '', image_url: '', operational_status: 'ACTIVE' }
+const blankFacility = { name: '', facility_type: 'PHARMACY', address: '', latitude: '', longitude: '', image_url: '', facility_type_details: '', operational_status: 'ACTIVE' }
 const blankLicence = { license_number: '', license_authority: '', license_expiry_date: '' }
+const typeQuestions = {
+  PHARMACY: { details: 'Pharmacy services (optional)', example: 'For example: dispensing, retail or wholesale', number: 'Pharmacy premises licence number', authority: 'Licence issuing authority', expiry: 'Pharmacy licence expiry date' },
+  CLINIC: { details: 'Clinic services (optional)', example: 'For example: primary care or dental care', number: 'Clinic registration or licence number', authority: 'Registration or licensing authority', expiry: 'Registration or licence expiry date' },
+  HOSPITAL: { details: 'Hospital departments (optional)', example: 'For example: emergency or maternity', number: 'Hospital registration or licence number', authority: 'Registration or licensing authority', expiry: 'Registration or licence expiry date' },
+}
+const defaultQuestions = { details: 'Facility services (optional)', example: 'Describe the services your facility offers', number: 'Licence number', authority: 'Issuing authority', expiry: 'Licence expiry date' }
 
 function badge(status) {
   return status === 'VERIFIED' ? 'Verified by MediNexus' : status === 'REJECTED' ? 'Not verified' : 'Unverified'
 }
 function values(row = {}) {
-  return { ...blankFacility, ...row, latitude: row.latitude ?? '', longitude: row.longitude ?? '', image_url: row.image_url ?? '' }
+  return { ...blankFacility, ...row, latitude: row.latitude ?? '', longitude: row.longitude ?? '', image_url: row.image_url ?? '', facility_type_details: row.facility_type_details ?? '' }
 }
 function fieldError(form) {
   if (!form.name.trim() || !form.address.trim()) return 'Enter the facility name and address.'
@@ -46,6 +54,7 @@ export function FacilityForm({ client, role, item, onSaved, onCancel, setup = fa
   const [form, setForm] = useState(() => registration ? { ...values(item), facility_type: '' } : values(item))
   const [licence, setLicence] = useState(blankLicence)
   const [fullName, setFullName] = useState('')
+  const [photo, setPhoto] = useState(null)
   const [loading, setLoading] = useState(Boolean(item?.id && !isPlatform))
   const [loadFailed, setLoadFailed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -59,13 +68,19 @@ export function FacilityForm({ client, role, item, onSaved, onCancel, setup = fa
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [client, isPlatform, item?.id])
-  function change(event) { setForm((old) => ({ ...old, [event.target.name]: event.target.value })) }
+  const questions = typeQuestions[form.facility_type] || defaultQuestions
+  function change(event) {
+    const { name, value } = event.target
+    setForm((old) => ({ ...old, [name]: value, ...(name === 'facility_type' && value !== old.facility_type ? { facility_type_details: '' } : {}) }))
+  }
   function changeLicence(event) { setLicence((old) => ({ ...old, [event.target.name]: event.target.value })) }
   async function submit(event) {
     event.preventDefault()
     if (busy || uncertain || loading || loadFailed) return
     const validation = fieldError(form)
     if (validation) { setError(validation); return }
+    if (photo) { const photoError = validatePhoto(photo); if (photoError) { setError(photoError); return } }
+    if (form.facility_type_details.length > 1000) { setError('Facility services or departments must be 1,000 characters or fewer.'); return }
     if (registration && !fullName.trim()) { setError('Enter your name.'); return }
     if (!isPlatform && (!licence.license_number.trim() || !licence.license_authority.trim() || !licence.license_expiry_date)) { setError('Enter the licence number, issuing authority and expiry date.'); return }
     if (!window.confirm(isPlatform ? 'Save this facility profile?' : 'Submit this profile for review? Its status will become Unverified.')) return
@@ -73,19 +88,29 @@ export function FacilityForm({ client, role, item, onSaved, onCancel, setup = fa
     const common = { p_name: form.name.trim(), p_facility_type: form.facility_type, p_address: form.address.trim(), p_image_url: form.image_url.trim() || null }
     const coordinates = { p_latitude: addressChanged || form.latitude === '' ? null : Number(form.latitude), p_longitude: addressChanged || form.longitude === '' ? null : Number(form.longitude) }
     const licenceArgs = { p_license_number: licence.license_number.trim(), p_license_authority: licence.license_authority.trim(), p_license_expiry_date: licence.license_expiry_date }
-    const name = registration ? 'register_facility' : isPlatform ? 'platform_admin_save_facility' : 'submit_facility_profile'
-    const args = registration ? { p_full_name: fullName.trim(), ...common, ...licenceArgs } : isPlatform ? { p_facility_id: item?.id || null, ...common, ...coordinates, p_operational_status: form.operational_status } : { ...common, ...coordinates, ...licenceArgs }
+    const name = registration ? 'register_facility_with_details' : isPlatform ? 'platform_admin_save_facility_with_details' : 'submit_facility_profile_with_details'
+    const details = { p_facility_type_details: form.facility_type_details.trim() || null }
+    const args = registration ? { p_full_name: fullName.trim(), ...common, ...licenceArgs, ...details } : isPlatform ? { p_facility_id: item?.id || null, ...common, ...coordinates, p_operational_status: form.operational_status, ...details } : { ...common, ...coordinates, ...licenceArgs, ...details }
     setBusy(true); setError('')
+    let uploaded = null
     try {
+      if (photo) {
+        uploaded = await uploadFacilityPhoto(client, item.id, photo)
+        args.p_image_url = uploaded.url
+      }
       const { data, error: rpcError } = await client.rpc(name, args)
       if (rpcError) {
-        if (['22023', '42501', 'P0002', '23514', '23505'].includes(rpcError.code)) { setError('Could not save this facility. Check the details and your permissions.'); return }
+        if (['22023', '42501', 'P0002', '23514', '23505'].includes(rpcError.code)) {
+          setError('Could not save this facility. Check the details and your permissions.'); return
+        }
         setUncertain(true); setError('The result is uncertain. Check setup status or refresh the facility list before trying again.'); return
       }
       if (data == null) { setUncertain(true); setError('The result is uncertain. Check setup status or refresh the facility list before trying again.'); return }
       onSaved(isPlatform ? 'Facility saved.' : 'Profile submitted. Your facility remains unverified until reviewed.')
-    } catch { setUncertain(true); setError('The result is uncertain. Check setup status or refresh the facility list before trying again.') }
-    finally { setBusy(false) }
+    } catch (err) {
+      if (err?.code === 'PHOTO_UPLOAD_FAILED') setError('The photo could not be uploaded. The profile was not saved. Please try again.')
+      else { setUncertain(true); setError('The result is uncertain. Check setup status or refresh the facility list before trying again.') }
+    } finally { setBusy(false) }
   }
   return <section className="facility-box"><h2>{isPlatform ? (item ? 'Edit facility' : 'Add a facility') : 'Submit your facility profile'}</h2>
     <p className="facilities-help">{isPlatform ? 'Create or update a clinic, pharmacy or hospital. New facilities are unverified.' : 'An administrator checks your licence before granting verification. Saving these details resets your status to Unverified.'}</p>
@@ -95,13 +120,15 @@ export function FacilityForm({ client, role, item, onSaved, onCancel, setup = fa
       <Field label="Facility name" name="name" value={form.name} onChange={change} required />
       <label className="facility-field"><span>Facility type</span><select name="facility_type" value={form.facility_type} onChange={change} required>{registration && <option value="" disabled>Select facility type</option>}<option value="PHARMACY">Pharmacy</option><option value="CLINIC">Clinic</option><option value="HOSPITAL">Hospital</option></select></label>
       <Field label="Location / address" name="address" value={form.address} onChange={change} required />
+      {form.facility_type && <Field label={questions.details} name="facility_type_details" value={form.facility_type_details} onChange={change}><input name="facility_type_details" value={form.facility_type_details} onChange={change} maxLength={1000} placeholder={questions.example} /></Field>}
+      {form.facility_type && <p className="facilities-help facility-field-full">Services and departments may be visible to other facilities. Do not include patient information.</p>}
       <Field label="Facility image link (HTTPS, optional)" name="image_url" type="url" value={form.image_url} onChange={change} />
+      {item?.id && !registration ? <label className="facility-field facility-field-full"><span>Upload facility photo</span><input type="file" aria-label="Upload facility photo" accept="image/jpeg,image/png,image/webp" disabled={busy || loading || loadFailed || uncertain} onChange={(event) => { setPhoto(event.target.files?.[0] || null); setError('') }} /><small>Choose a JPEG, PNG or WebP image, up to 5 MB. Uploaded photos are public. Do not include patient information.</small>{photo && <small>Selected: {photo.name}. It will be uploaded when you save.</small>}</label> : <p className="facilities-help facility-field-full">To upload a photo from your device, save the facility first, then edit its profile.</p>}
       {isPlatform ? <label className="facility-field"><span>Facility status</span><select name="operational_status" value={form.operational_status} onChange={change}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></label> : <>
         <p className="facility-note facility-field-full">Licence details are private to your facility administrator and MediNexus reviewers. Do not include patient information.</p>
-        <Field label="Licence number" name="license_number" value={licence.license_number} onChange={changeLicence} required /
->
-        <Field label="Issuing authority" name="license_authority" value={licence.license_authority} onChange={changeLicence} required />
-        <Field label="Licence expiry date" name="license_expiry_date" type="date" value={licence.license_expiry_date} onChange={changeLicence} required />
+        <Field label={questions.number} name="license_number" value={licence.license_number} onChange={changeLicence} required />
+        <Field label={questions.authority} name="license_authority" value={licence.license_authority} onChange={changeLicence} required />
+        <Field label={questions.expiry} name="license_expiry_date" type="date" value={licence.license_expiry_date} onChange={changeLicence} required />
       </>}
       {error && <p role="alert" className="facility-error facility-field-full">{error}</p>}
       <div className="facility-form-actions"><button type="submit" className="button button-primary" disabled={busy || loading || uncertain || loadFailed}>{busy ? 'Saving…' : isPlatform ? 'Save facility' : 'Submit for review'}</button>{!setup && <button type="button" className="button button-outline" disabled={busy} onClick={onCancel}>Cancel</button>}</div>
@@ -189,7 +216,7 @@ export default function Facilities({ client, role, facility, onFacilityUpdated }
       {!editor && !review && rows.length === 0 && <p className="facility-empty">No facilities found.</p>}
       {!editor && !review && rows.map((item) => <article className="facility-box facility-card" key={item.id}>
         {item.image_url && <img className="facility-photo" src={item.image_url} alt="" referrerPolicy="no-referrer" />}
-        <div className="facility-card-body"><h2>{item.name}</h2><p>{item.facility_type?.toLowerCase()} · {item.address}</p><p>{item.operational_status === 'ACTIVE' ? 'Active' : 'Inactive'}</p><Status status={item.verification_status} />
+        <div className="facility-card-body"><h2>{item.name}</h2><p>{item.facility_type?.toLowerCase()} · {item.address}</p>{item.facility_type_details && <p>{(typeQuestions[item.facility_type] || defaultQuestions).details.replace(' (optional)', '')}: {item.facility_type_details}</p>}<p>{item.operational_status === 'ACTIVE' ? 'Active' : 'Inactive'}</p><Status status={item.verification_status} />
           <div className="facility-card-actions"><button className="button button-outline" type="button" onClick={() => { setSuccess(''); setEditor({ item }) }}>{isPlatform ? 'Edit facility' : 'Edit profile and submit licence'}</button>{isPlatform && <button className="button button-outline" type="button" onClick={() => { setSuccess(''); setReview(item) }}>Review licence</button>}</div>
         </div>
       </article>)}

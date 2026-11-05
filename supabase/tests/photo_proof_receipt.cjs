@@ -6,7 +6,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const assert = require('node:assert/strict')
 const root = process.cwd()
-const files = ['20261105060039_initial_schema.sql', '20261105061109_transactional_operations.sql', '20261105065507_inventory_metadata.sql', '20261105072638_medicine_matching.sql', '20261105121023_photo_proof_receipt.sql']
+const files = ['20261105060039_initial_schema.sql', '20261105061109_transactional_operations.sql', '20261105065507_inventory_metadata.sql', '20261105072638_medicine_matching.sql', '20261105121023_photo_proof_receipt.sql', '20261105220000_receiving_inventory_intake.sql']
 const u = {
   clinic:'00000000-0000-0000-0000-000000000001', pharmacy:'00000000-0000-0000-0000-000000000002', other:'00000000-0000-0000-0000-000000000003', med:'20000000-0000-0000-0000-000000000001',
   ca:'10000000-0000-0000-0000-000000000001', cs:'10000000-0000-0000-0000-000000000002', sa:'10000000-0000-0000-0000-000000000003', ss:'10000000-0000-0000-0000-000000000004', os:'10000000-0000-0000-0000-000000000005', inactive:'10000000-0000-0000-0000-000000000006',
@@ -100,8 +100,8 @@ async function main() {
     await reject(u.ss,'select public.confirm_supply_request_receipt($1) id',[req],'Supplier cannot confirm receipt')
     await reject(u.os,'select public.confirm_supply_request_receipt($1) id',[req],'Unrelated user cannot confirm receipt')
     await reject(u.cs,'select public.confirm_supply_request_receipt($1) id',[req2],'Not-yet-fulfilled request cannot be received')
-    assert.equal(await rpc(u.cs,'select public.confirm_supply_request_receipt($1) id',[req]),req)
-    await reject(u.ca,'select public.confirm_supply_request_receipt($1) id',[req],'Receipt cannot be confirmed twice')
+    assert.equal(await rpc(u.cs,'select public.confirm_supply_request_receipt_with_inventory($1,$2) id',[req,JSON.stringify([{batch_number:'PHOTO-RECEIPT',quantity:5,expiry_date:'2099-12-31'}])]),req)
+    await reject(u.ca,'select public.confirm_supply_request_receipt_with_inventory($1,$2) id',[req,JSON.stringify([{batch_number:'PHOTO-RECEIPT',quantity:5,expiry_date:'2099-12-31'}])],'Receipt cannot be confirmed twice')
     const receipt=await rows('select status,received_by,received_at from public.supply_requests where id=$1',[req])
     assert.equal(receipt[0].status,'RECEIVED'); assert.equal(receipt[0].received_by,u.cs); assert.ok(receipt[0].received_at)
     assert.deepEqual(await rows("select event_type,previous_status,new_status,actor_id from public.request_events where supply_request_id=$1 and event_type='RECEIVED'",[req]),[

@@ -84,7 +84,7 @@ describe('facility authentication', () => {
     mock.client.rpc.mockImplementation(async (name) => {
       if (name === 'can_register_facility') return { data: true, error: null }
       if (name === 'facility_setup_complete') return { data: true, error: null }
-      if (name === 'register_facility') { mock.state.profile = { ...profile, role: 'FACILITY_ADMIN' }; return { data: 'facility-1', error: null } }
+      if (name === 'register_facility_with_details') { mock.state.profile = { ...profile, role: 'FACILITY_ADMIN' }; return { data: 'facility-1', error: null } }
     })
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'Set up your facility' })).toBeInTheDocument()
@@ -94,12 +94,13 @@ describe('facility authentication', () => {
     fireEvent.change(screen.getByLabelText('Facility name'), { target: { value: 'Fictional Clinic' } })
     fireEvent.change(screen.getByLabelText('Facility type'), { target: { value: 'CLINIC' } })
     fireEvent.change(screen.getByLabelText('Location / address'), { target: { value: 'Demo Road' } })
-    fireEvent.change(screen.getByLabelText('Licence number'), { target: { value: 'LIC-123' } })
-    fireEvent.change(screen.getByLabelText('Issuing authority'), { target: { value: 'Health Authority' } })
-    fireEvent.change(screen.getByLabelText('Licence expiry date'), { target: { value: '2099-12-31' } })
+    fireEvent.change(screen.getByLabelText('Clinic services (optional)'), { target: { value: 'Primary care' } })
+    fireEvent.change(screen.getByLabelText('Clinic registration or licence number'), { target: { value: 'LIC-123' } })
+    fireEvent.change(screen.getByLabelText('Registration or licensing authority'), { target: { value: 'Health Authority' } })
+    fireEvent.change(screen.getByLabelText('Registration or licence expiry date'), { target: { value: '2099-12-31' } })
     fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
     expect(await screen.findByRole('button', { name: 'Inventory' })).toBeInTheDocument()
-    expect(mock.client.rpc).toHaveBeenCalledWith('register_facility', { p_full_name: 'Ada', p_name: 'Fictional Clinic', p_facility_type: 'CLINIC', p_address: 'Demo Road', p_image_url: null, p_license_number: 'LIC-123', p_license_authority: 'Health Authority', p_license_expiry_date: '2099-12-31' })
+    expect(mock.client.rpc).toHaveBeenCalledWith('register_facility_with_details', { p_full_name: 'Ada', p_name: 'Fictional Clinic', p_facility_type: 'CLINIC', p_address: 'Demo Road', p_image_url: null, p_license_number: 'LIC-123', p_license_authority: 'Health Authority', p_license_expiry_date: '2099-12-31', p_facility_type_details: 'Primary care' })
     confirm.mockRestore()
   })
 
@@ -132,6 +133,23 @@ describe('facility authentication', () => {
     mock.state.facility = { ...facility, id: 'facility-2', name: 'Other Clinic' }
     render(<App />)
     expect(await screen.findByRole('button', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('opens outgoing requests from the clinic dashboard', async () => {
+    mock.state.session = session
+    mock.state.facility = { ...facility, facility_type: 'CLINIC' }
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Review outgoing requests' }))
+    expect(await screen.findByRole('tab', { name: 'Outgoing' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Incoming' })).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('opens incoming requests from the pharmacy dashboard', async () => {
+    mock.state.session = session
+    mock.state.facility = { ...facility, facility_type: 'PHARMACY' }
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Review incoming requests' }))
+    expect(await screen.findByRole('tab', { name: 'Incoming' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('shows an error for invalid credentials without revealing account details', async () => {
@@ -183,13 +201,13 @@ describe('facility authentication', () => {
     expect(await screen.findByRole('heading', { name: 'Set up your facility' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Inventory' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('Facility image link (HTTPS, optional)')).toHaveValue('https://example.test/facility.jpg')
-    fireEvent.change(screen.getByLabelText('Licence number'), { target: { value: 'LIC-123' } })
-    fireEvent.change(screen.getByLabelText('Issuing authority'), { target: { value: 'Ministry of Health' } })
-    fireEvent.change(screen.getByLabelText('Licence expiry date'), { target: { value: '2099-12-31' } })
+    fireEvent.change(screen.getByLabelText('Clinic registration or licence number'), { target: { value: 'LIC-123' } })
+    fireEvent.change(screen.getByLabelText('Registration or licensing authority'), { target: { value: 'Ministry of Health' } })
+    fireEvent.change(screen.getByLabelText('Registration or licence expiry date'), { target: { value: '2099-12-31' } })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Submit for review' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
     expect(await screen.findByRole('button', { name: 'Inventory' })).toBeInTheDocument()
-    expect(mock.client.rpc).toHaveBeenCalledWith('submit_facility_profile', expect.objectContaining({ p_license_number: 'LIC-123', p_image_url: 'https://example.test/facility.jpg', p_latitude: 7.1, p_longitude: 3.3 }))
+    expect(mock.client.rpc).toHaveBeenCalledWith('submit_facility_profile_with_details', expect.objectContaining({ p_license_number: 'LIC-123', p_image_url: 'https://example.test/facility.jpg', p_latitude: 7.1, p_longitude: 3.3 }))
     expect(screen.getByText('Unverified', { exact: false })).toBeInTheDocument()
     confirm.mockRestore()
   })

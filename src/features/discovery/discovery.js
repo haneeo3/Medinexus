@@ -42,10 +42,10 @@ export async function loadFacilityImages(client, facilityIds) {
   const images = {}
   const ids = [...new Set(facilityIds.filter(Boolean))]
   for (let i = 0; i < ids.length; i += 100) {
-    const { data, error } = await client.from('facility_directory').select('id, image_url, verification_status').in('id', ids.slice(i, i + 100))
+    const { data, error } = await client.from('facility_directory').select('id, image_url, verification_status, facility_type_details').in('id', ids.slice(i, i + 100))
     if (error) throw error
     for (const facility of data || []) {
-      images[facility.id] = { imageUrl: typeof facility.image_url === 'string' && facility.image_url.startsWith('https://') ? facility.image_url : null, status: facility.verification_status }
+      images[facility.id] = { imageUrl: typeof facility.image_url === 'string' && facility.image_url.startsWith('https://') ? facility.image_url : null, status: facility.verification_status, details: facility.facility_type_details }
     }
   }
   return images

@@ -59,12 +59,13 @@ describe('medicine discovery', () => {
   })
   it('shows current reviewed verification and facility image from the directory', async () => {
     client.from.mockImplementation(() => {
-      const query = { select: () => query, order: () => query, range: async (start, end) => ({ data: medicines.slice(start, end + 1), error: null }), in: async () => ({ data: [{ id: 's1', image_url: 'https://example.test/facility.jpg', verification_status: 'VERIFIED' }, { id: 's2', image_url: null, verification_status: 'UNVERIFIED' }], error: null }) }
+      const query = { select: () => query, order: () => query, range: async (start, end) => ({ data: medicines.slice(start, end + 1), error: null }), in: async () => ({ data: [{ id: 's1', image_url: 'https://example.test/facility.jpg', verification_status: 'VERIFIED', facility_type_details: 'Dispensing and retail' }, { id: 's2', image_url: null, verification_status: 'UNVERIFIED' }], error: null }) }
       return query
     })
     await renderSearch(); await searchMedicine()
     const card = (await screen.findByRole('heading', { name: 'Demo Supplier' })).closest('article')
     expect(await within(card).findByText(/Verified by MediNexus/)).toBeInTheDocument()
+    expect(within(card).getByText('Services: Dispensing and retail')).toBeInTheDocument()
     const photo = within(card).getByRole('img', { name: 'Demo Supplier facility' })
     expect(photo).toHaveAttribute('src', 'https://example.test/facility.jpg')
     fireEvent.error(photo)
@@ -131,6 +132,23 @@ describe('medicine discovery', () => {
     const partialCard = screen.getByRole('heading',{name:'Small Supplier'}).closest('article')
     expect(within(partialCard).queryByRole('button',{name:'Request supply'})).not.toBeInTheDocument()
   })
+  it('searches recorded supplier stock after selecting an AI-suggested catalogue medicine', async () => {
+    client.auth = { getSession: vi.fn(async () => ({ data: { session: { access_token: 'token' } }, error: null })) }
+    client.rpc.mockResolvedValue({ data: { ...response, requested_quantity: 20, matches: [{ ...match, requested_quantity: 20, unit_of_measure: 'capsule' }], insufficient: [] }, error: null })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ fields: { medicineName: 'Amoxicillin', genericName: null, brandName: null, activeIngredient: null, strength: '250 mg', dosageForm: 'capsule', unit: 'capsule', quantity: 20 } }) })
+    await renderSearch()
+    fireEvent.change(screen.getByLabelText('Medicine description'), { target: { value: '20 amoxicillin 250 mg capsules' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Read medicine details' }))
+    expect(await screen.findByRole('button', { name: 'Find reported supplier stock' })).toBeDisabled()
+    expect(client.rpc).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('Choose the exact medicine from the shared catalogue'), { target: { value: 'm2' } })
+    expect(screen.getByLabelText('Catalogue medicine details')).toHaveTextContent('250 mg')
+    fireEvent.click(screen.getByRole('button', { name: 'Find reported supplier stock' }))
+    await waitFor(() => expect(client.rpc).toHaveBeenCalledWith('find_medicine_matches', { p_requesting_facility_id: 'clinic-1', p_medicine_id: 'm2', p_requested_quantity: 20 }))
+    expect(await screen.findByRole('heading', { name: 'Demo Supplier' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Matched catalogue medicine details')).toHaveTextContent('250 mg')
+  })
+
   it('does not offer request creation to inventory-only users', async () => {
     render(<Discovery client={client} facility={facility} role="INVENTORY_MANAGER" onRequest={vi.fn()} />)
     await screen.findByLabelText('Medicine and formulation')

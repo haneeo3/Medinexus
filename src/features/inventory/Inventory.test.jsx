@@ -55,7 +55,7 @@ describe('inventory', () => {
   it('creates a batch using the authenticated RPC after confirmation', async () => {
     await renderInventory()
     fireEvent.click(screen.getByRole('button', { name: /add batch/i }))
-    fireEvent.change(screen.getByLabelText('Medicine and formulation'), { target: { value: 'm1' } })
+    fireEvent.change(screen.getByLabelText('Exact catalogue medicine'), { target: { value: 'm1' } })
     fireEvent.change(screen.getByLabelText('Batch number'), { target: { value: 'NEW-3' } })
     fireEvent.change(screen.getByLabelText('Expiry date'), { target: { value: '2099-02-01' } })
     fireEvent.change(screen.getByLabelText('Starting quantity'), { target: { value: '15' } })
@@ -63,6 +63,39 @@ describe('inventory', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create batch' }))
     await waitFor(() => expect(client.rpc).toHaveBeenCalledWith('create_inventory_batch', { p_facility_id:'f1', p_medicine_id:'m1', p_batch_number:'NEW-3', p_quantity:15, p_expiry_date:'2099-02-01', p_low_stock_threshold:4 }))
     expect(await screen.findByText('Inventory batch created.')).toBeInTheDocument()
+  })
+  it('adds a detailed formulation and starting batch through the authorized atomic RPC', async () => {
+    await renderInventory('INVENTORY_MANAGER')
+    fireEvent.click(screen.getByRole('button', { name: /add batch/i }))
+    fireEvent.click(screen.getByLabelText('Enter medicine details'))
+    fireEvent.change(screen.getByLabelText('Medicine name'), { target: { value: 'New medicine' } })
+    fireEvent.change(screen.getByLabelText('Generic name'), { target: { value: 'Generic name' } })
+    fireEvent.change(screen.getByLabelText(/Brand name/), { target: { value: 'Brand X' } })
+    fireEvent.change(screen.getByLabelText('Active ingredient'), { target: { value: 'Ingredient X' } })
+    fireEvent.change(screen.getByLabelText('Strength'), { target: { value: '25 mg' } })
+    fireEvent.change(screen.getByLabelText('Dosage form'), { target: { value: 'capsule' } })
+    fireEvent.change(screen.getByLabelText('Unit'), { target: { value: 'capsule' } })
+    fireEvent.change(screen.getByLabelText('Batch number'), { target: { value: 'NEW-4' } })
+    fireEvent.change(screen.getByLabelText('Expiry date'), { target: { value: '2099-02-01' } })
+    fireEvent.change(screen.getByLabelText('Starting quantity'), { target: { value: '15' } })
+    fireEvent.change(screen.getByLabelText('Low-stock threshold'), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create batch' }))
+    await waitFor(() => expect(client.rpc).toHaveBeenCalledWith('create_inventory_batch_with_medicine', {
+      p_facility_id: 'f1', p_medicine_name: 'New medicine', p_generic_name: 'Generic name', p_brand_name: 'Brand X',
+      p_active_ingredient: 'Ingredient X', p_strength: '25 mg', p_dosage_form: 'capsule', p_unit_of_measure: 'capsule',
+      p_batch_number: 'NEW-4', p_quantity: 15, p_expiry_date: '2099-02-01', p_low_stock_threshold: 4,
+    }))
+  })
+  it('requires all non-brand formulation details before submitting', async () => {
+    await renderInventory()
+    fireEvent.click(screen.getByRole('button', { name: /add batch/i }))
+    fireEvent.click(screen.getByLabelText('Enter medicine details'))
+    fireEvent.change(screen.getByLabelText('Batch number'), { target: { value: 'NEW-5' } })
+    fireEvent.change(screen.getByLabelText('Expiry date'), { target: { value: '2099-02-01' } })
+    fireEvent.change(screen.getByLabelText('Starting quantity'), { target: { value: '15' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Create batch' }).closest('form'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter the medicine name, generic name, active ingredient, strength, dosage form and unit.')
+    expect(client.rpc).not.toHaveBeenCalled()
   })
   it('does not submit when the user cancels the confirmation', async () => {
     window.confirm.mockReturnValue(false)

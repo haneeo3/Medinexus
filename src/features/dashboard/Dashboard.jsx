@@ -6,6 +6,36 @@ const dateLabel = (value) => new Intl.DateTimeFormat('en-GB', { dateStyle: 'medi
 const timeLabel = (value) => new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 const medicineLabel = (medicine) => medicine ? [medicine.name, medicine.strength, medicine.dosage_form].filter(Boolean).join(' · ') : 'Unknown medicine'
 
+const FACILITY_PRIORITIES = {
+  PHARMACY: {
+    title: 'Pharmacy priorities',
+    description: 'Keep stock visible and respond to supply requests from other facilities.',
+    actions: [
+      { page: 'inventory', label: 'Manage inventory', priority: true },
+      { page: 'requests', label: 'Review incoming requests', priority: true },
+      { page: 'discovery', label: 'Find medicine', priority: false },
+    ],
+  },
+  CLINIC: {
+    title: 'Clinic priorities',
+    description: 'Find available medicine and follow your facility’s outgoing requests.',
+    actions: [
+      { page: 'discovery', label: 'Find medicine', priority: true },
+      { page: 'requests', label: 'Review outgoing requests', priority: true },
+      { page: 'inventory', label: 'Manage inventory', priority: false },
+    ],
+  },
+  HOSPITAL: {
+    title: 'Hospital priorities',
+    description: 'Search medicine availability and keep facility inventory up to date.',
+    actions: [
+      { page: 'discovery', label: 'Find medicine', priority: true },
+      { page: 'inventory', label: 'Manage inventory', priority: true },
+      { page: 'requests', label: 'Supply requests', priority: false },
+    ],
+  },
+}
+
 function Panel({ title, description, count, emptyMessage, children }) {
   return <section className="dashboard-panel">
     <div className="dashboard-panel-heading"><div><h2>{title}</h2><p>{description}</p></div><span className="dashboard-count" aria-label={`${count} items`}>{count}</span></div>
@@ -36,7 +66,7 @@ function RequestList({ requests, direction }) {
   })}</ul>
 }
 
-export default function Dashboard({ client, facility }) {
+export default function Dashboard({ client, facility, role, onNavigate }) {
   const [revision, setRevision] = useState(0)
   const [result, setResult] = useState(null)
 
@@ -67,11 +97,17 @@ export default function Dashboard({ client, facility }) {
 
   const refresh = () => setRevision((value) => value + 1)
   const content = (items, component) => items.length ? component : null
+  const facilityType = typeof facility.facility_type === 'string' ? facility.facility_type.trim().toUpperCase() : ''
+  const priorities = FACILITY_PRIORITIES[facilityType]
 
   return <section className="dashboard-page" aria-labelledby="dashboard-title">
     <header className="dashboard-header"><div><p className="dashboard-eyebrow">FACILITY OVERVIEW</p><h1 id="dashboard-title">Good day, {facility.name}</h1><p className="dashboard-subtitle">Facility stock, supply requests, and recent activity. Refresh to see the latest updates.</p></div>
       <button className="dashboard-refresh" type="button" onClick={refresh} aria-label="Refresh dashboard"><span aria-hidden="true">↻</span> Refresh</button>
     </header>
+    {priorities && <section className="dashboard-focus" aria-labelledby="dashboard-focus-title">
+      <div className="dashboard-focus-copy"><h2 id="dashboard-focus-title">{priorities.title}</h2><p>{priorities.description}</p></div>
+      <div className="dashboard-focus-actions">{priorities.actions.map((action) => <button key={action.page} className={action.priority ? 'dashboard-action dashboard-action-priority' : 'dashboard-action'} type="button" onClick={() => onNavigate?.(action.page)}>{action.page === 'inventory' && role && !['FACILITY_ADMIN', 'INVENTORY_MANAGER'].includes(role) ? 'View inventory' : action.label}<span aria-hidden="true">↗</span></button>)}</div>
+    </section>}
     {!current && <div className="dashboard-state" role="status"><span className="dashboard-spinner" aria-hidden="true" />Loading facility dashboard…</div>}
     {current?.error && <div className="dashboard-state dashboard-error" role="alert"><div><strong>Dashboard unavailable</strong><p>{current.error}</p></div><button className="dashboard-retry" type="button" onClick={refresh}>Try again</button></div>}
     {current?.data && summary && <>

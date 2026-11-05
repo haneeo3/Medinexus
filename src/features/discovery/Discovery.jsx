@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { medicineLabel } from '../inventory/inventory.js'
 import { filterMedicines, findMatches, loadMedicineCatalogue, loadFacilityImages } from './discovery.js'
+import AiMedicineSearch from './AiMedicineSearch.jsx'
 import './discovery.css'
 
 function percent(value) {
@@ -17,9 +18,10 @@ function SupplierPhoto({ imageUrl, name }) {
     : <div className="supplier-photo-placeholder" aria-label="Facility photo unavailable"><svg viewBox="0 0 48 48" aria-hidden="true" fill="none"><path d="M8 40h32M13 40V16l11-7 11 7v24M20 40V29h8v11M20 19h8M24 15v8" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg><span>No photo</span></div>
 }
 
-function SupplierCard({ item, rank, partial, canRequest, onRequest, imageUrl, verificationStatus }) {
+function SupplierCard({ item, rank, partial, canRequest, onRequest, imageUrl, verificationStatus, details }) {
   return <article className={`supplier-card ${partial ? 'supplier-partial' : ''}`}>
     <div className="supplier-top"><div className="supplier-title"><span className="supplier-rank">{partial ? '—' : `#${rank}`}</span><SupplierPhoto key={imageUrl || 'no-photo'} imageUrl={imageUrl} name={item.facility_name} /><div><h3>{item.facility_name}</h3><p>{item.facility_type?.toLowerCase()} · {item.address}</p></div></div>{partial ? <span className="badge badge-warning">Insufficient quantity</span> : <div className="match-score"><strong>{Number(item.match_score).toFixed(1)}</strong><span>match score / 100</span></div>}</div>
+    {details && <p className="supplier-verification">{item.facility_type === 'HOSPITAL' ? 'Departments' : 'Services'}: {details}</p>}
     <div className="supplier-facts"><div><span>Reported eligible stock</span><strong>{item.available_quantity} {item.unit_of_measure}</strong><small>Requested: {item.requested_quantity}</small></div><div><span>Oldest eligible stock update</span><strong>{timestamp(item.last_updated_at)}</strong><small>{item.stale ? 'Stale information' : 'Reported by facility'}</small></div></div>
     <div className="supplier-explanation"><strong>{partial ? 'Why this is separate' : 'Why this facility matched'}</strong><ul>{(item.reasons || []).map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}</ul></div>
     {!partial && <details className="score-details"><summary>View score breakdown</summary><div><span>Quantity <strong>{Number(item.quantity_score).toFixed(1)} / 100</strong></span><span>Freshness <strong>{Number(item.freshness_score).toFixed(1)} / 100</strong></span></div></details>}
@@ -59,19 +61,20 @@ export default function Discovery({ client, facility, role, onRequest }) {
     return () => { active = false }
   }, [client, result])
   const filtered = useMemo(() => catalogue ? filterMedicines(catalogue, search) : [], [catalogue, search])
+  const selectedMedicine = catalogue?.find((medicine) => medicine.id === medicineId)
   function clearResults() { requestNumber.current += 1; setResult(null); setFacilityImages({}); setError(''); setBusy(false) }
 
-  async function submit(event) {
-    event.preventDefault()
+  async function searchSuppliers(selectedId, requestedQuantity) {
     if (busy) return
-    const selected = catalogue?.find((medicine) => medicine.id === medicineId)
+    const selected = catalogue?.find((medicine) => medicine.id === selectedId)
+    if (!selected) { setError('Choose a medicine from the catalogue.'); return }
     const number = ++requestNumber.current
     setBusy(true)
     setError('')
     setResult(null)
     setFacilityImages({})
     try {
-      const data = await findMatches(client, facility.id, medicineId, quantity)
+      const data = await findMatches(client, facility.id, selectedId, requestedQuantity)
       if (requestNumber.current === number) setResult({ data, selected })
     } catch (err) {
       if (requestNumber.current === number) setError(err.message)
@@ -85,17 +88,20 @@ export default function Discovery({ client, facility, role, onRequest }) {
     {facility.name.startsWith('MediNexus Demo ') && <p className="demo-note">Demo facilities, stock and any demo locations are fictional.</p>}
     {catalogueError && <div className="inventory-state"><p role="alert">{catalogueError}</p><button className="button button-outline" type="button" onClick={() => { setCatalogueError(''); setCatalogueRetry((n) => n + 1) }}>Try again</button></div>}
     {!catalogue && !catalogueError && <p className="inventory-state" role="status">Loading medicine catalogue…</p>}
-    {catalogue && <form className="discovery-form" onSubmit={submit}>
+    {catalogue && <AiMedicineSearch client={client} catalogue={catalogue} searching={busy} searchError={error} onClear={clearResults} onSearch={({ medicineId: selectedId, quantity: requestedQuantity }) => { const medicine = catalogue.find((item) => item.id === selectedId); setSearch(medicine?.name || ''); setMedicineId(selectedId); setQuantity(requestedQuantity); searchSuppliers(selectedId, requestedQuantity) }} />}
+    {catalogue && <form className="discovery-form" onSubmit={(event) => { event.preventDefault(); searchSuppliers(medicineId, quantity) }}>
       <div className="discovery-form-title"><div><p className="section-tag">SEARCH THE NETWORK</p><h2>What medicine do you need?</h2></div></div>
       <div className="discovery-form-grid"><div className="field"><label htmlFor="medicine-search">Search catalogue</label><input id="medicine-search" placeholder="Name, ingredient or strength" value={search} onChange={(e) => { clearResults(); setSearch(e.target.value); setMedicineId('') }} /></div><div className="field"><label htmlFor="medicine-select">Medicine and formulation</label><select id="medicine-select" value={medicineId} onChange={(e) => { clearResults(); setMedicineId(e.target.value) }} required><option value="">Select a medicine</option>{filtered.map((medicine) => <option value={medicine.id} key={medicine.id}>{medicineLabel(medicine)}</option>)}</select><small>{filtered.length === 0 ? 'No catalogue medicines match your search.' : `${filtered.length} formulation${filtered.length === 1 ? '' : 's'} found`}</small></div><div className="field"><label htmlFor="requested-quantity">Required quantity</label><input id="requested-quantity" type="number" min="1" max="2147483647" step="1" value={quantity} onChange={(e) => { clearResults(); setQuantity(e.target.value) }} required /><small>In the selected medicine’s unit</small></div></div>
+      {selectedMedicine && <div className="selected-medicine-details" aria-label="Selected medicine details"><strong>Check the selected medicine</strong><p>Generic: {selectedMedicine.generic_name || 'Not recorded'} · Brand: {selectedMedicine.brand_name || 'Not recorded'} · Active ingredient: {selectedMedicine.active_ingredient || 'Not recorded'} · Strength: {selectedMedicine.strength || 'Not recorded'} · Form: {selectedMedicine.dosage_form || 'Not recorded'} · Unit: {selectedMedicine.unit_of_measure || 'Not recorded'}</p></div>}
       {error && <p className="notice notice-error" role="alert">{error}</p>}
       <button className="button button-primary discovery-submit" type="submit" disabled={busy || !medicineId}>{busy ? 'Finding suppliers…' : 'Find suppliers'} <span aria-hidden="true">→</span></button>
     </form>}
     {result && <section className="match-results" aria-labelledby="match-results-title">
       <div className="match-heading"><div><p className="section-tag">MATCH RESULTS</p><h2 id="match-results-title">{medicineLabel(result.selected)}</h2><p>Requested quantity: {result.data.requested_quantity} {result.selected?.unit_of_measure || 'units'}</p></div><span className="result-count">{result.data.matches.length} full match{result.data.matches.length === 1 ? '' : 'es'}</span></div>
+      <div className="selected-medicine-details" aria-label="Matched catalogue medicine details"><strong>Medicine details from the shared catalogue</strong><p>Medicine: {result.selected?.name || 'Not recorded'} · Generic: {result.selected?.generic_name || 'Not recorded'} · Brand: {result.selected?.brand_name || 'Not recorded'} · Active ingredient: {result.selected?.active_ingredient || 'Not recorded'} · Strength: {result.selected?.strength || 'Not recorded'} · Form: {result.selected?.dosage_form || 'Not recorded'} · Unit: {result.selected?.unit_of_measure || 'Not recorded'}</p></div>
       {result.data.scoring && <div className="scoring-note"><strong>How ranking works</strong><p>Eligible suppliers are ranked by quantity ({percent(result.data.scoring.quantity_weight)}%) and freshness ({percent(result.data.scoring.freshness_weight)}%). Full matches have a quantity score of 100 because it is capped at the requested quantity. Freshness declines to zero at {result.data.scoring.stale_after_hours} hours, when stock is also flagged as stale.</p></div>}
-      {result.data.matches.length === 0 ? <div className="discovery-empty"><strong>No supplier reports enough eligible stock.</strong><p>Try a different quantity or medicine. Insufficient quantities, if any, are shown separately below.</p></div> : <div className="supplier-list">{result.data.matches.map((item, index) => <SupplierCard key={item.facility_id} item={item} imageUrl={facilityImages[item.facility_id]?.imageUrl} verificationStatus={facilityImages[item.facility_id]?.status} rank={index + 1} canRequest={canRequest} onRequest={() => onRequest({ supplier: item, medicine: result.selected, quantity: result.data.requested_quantity })} />)}</div>}
-      {result.data.insufficient.length > 0 && <section className="partial-section"><div className="partial-heading"><h2>Other reported stock</h2><p>These facilities cannot meet the full requested quantity and are not full matches.</p></div><div className="supplier-list">{result.data.insufficient.map((item) => <SupplierCard key={item.facility_id} item={item} imageUrl={facilityImages[item.facility_id]?.imageUrl} verificationStatus={facilityImages[item.facility_id]?.status} partial />)}</div></section>}
+      {result.data.matches.length === 0 ? <div className="discovery-empty"><strong>No supplier reports enough eligible stock.</strong><p>Try a different quantity or medicine. Insufficient quantities, if any, are shown separately below.</p></div> : <div className="supplier-list">{result.data.matches.map((item, index) => <SupplierCard key={item.facility_id} item={item} imageUrl={facilityImages[item.facility_id]?.imageUrl} verificationStatus={facilityImages[item.facility_id]?.status} details={facilityImages[item.facility_id]?.details} rank={index + 1} canRequest={canRequest} onRequest={() => onRequest({ supplier: item, medicine: result.selected, quantity: result.data.requested_quantity })} />)}</div>}
+      {result.data.insufficient.length > 0 && <section className="partial-section"><div className="partial-heading"><h2>Other reported stock</h2><p>These facilities cannot meet the full requested quantity and are not full matches.</p></div><div className="supplier-list">{result.data.insufficient.map((item) => <SupplierCard key={item.facility_id} item={item} imageUrl={facilityImages[item.facility_id]?.imageUrl} verificationStatus={facilityImages[item.facility_id]?.status} details={facilityImages[item.facility_id]?.details} partial />)}</div></section>}
       <p className="discovery-next">{canRequest ? 'Select a full match to submit a supply request. Approval is needed before stock is reserved.' : 'Only requesting staff and facility administrators can submit supply requests.'}</p>
     </section>}
   </section>

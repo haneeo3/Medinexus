@@ -138,11 +138,15 @@ describe('supply requests', () => {
 
   it('only lets requesting staff confirm a fulfilled request', async () => {
     rows[1].status = 'FULFILLED'
+    rows[1].fulfilled_quantity = 5
     await renderRequests('REQUESTING_STAFF')
     fireEvent.click(screen.getByRole('tab', { name: 'Outgoing' }))
+    fireEvent.change(screen.getByLabelText('Batch 1 number'), { target: { value: ' LOT-1 ' } })
+    fireEvent.change(screen.getByLabelText('Batch 1 quantity received'), { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText('Batch 1 expiry date'), { target: { value: '2030-12-31' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm receipt for request req-out' }))
-    await waitFor(() => expect(client.rpc).toHaveBeenCalledWith('confirm_supply_request_receipt', { p_request_id: 'req-out' }))
-    expect(await screen.findByText('Receipt confirmed.')).toBeInTheDocument()
+    await waitFor(() => expect(client.rpc).toHaveBeenCalledWith('confirm_supply_request_receipt_with_inventory', { p_request_id: 'req-out', p_batches: [{ batch_number: 'LOT-1', quantity: 5, expiry_date: '2030-12-31' }] }))
+    expect(await screen.findByText('Receipt confirmed and medicine added to your inventory.')).toBeInTheDocument()
     cleanup()
     await renderRequests('SUPPLIER_STAFF')
     fireEvent.click(screen.getByRole('tab', { name: 'Outgoing' }))
@@ -153,6 +157,30 @@ describe('supply requests', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Outgoing' }))
     expect(screen.getByText('RECEIVED')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Confirm receipt for request req-out' })).not.toBeInTheDocument()
+  })
+
+  it('requires complete batches and a total matching fulfilment before confirming', async () => {
+    rows[1].status = 'FULFILLED'
+    rows[1].fulfilled_quantity = 5
+    await renderRequests('REQUESTING_STAFF')
+    fireEvent.click(screen.getByRole('tab', { name: 'Outgoing' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm receipt for request req-out' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a batch number')
+    fireEvent.change(screen.getByLabelText('Batch 1 number'), { target: { value: 'LOT-A' } })
+    fireEvent.change(screen.getByLabelText('Batch 1 quantity received'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Batch 1 expiry date'), { target: { value: '2030-12-31' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm receipt for request req-out' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('total received must match')
+    expect(client.rpc).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Add another batch' }))
+    fireEvent.change(screen.getByLabelText('Batch 2 number'), { target: { value: 'LOT-B' } })
+    fireEvent.change(screen.getByLabelText('Batch 2 quantity received'), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText('Batch 2 expiry date'), { target: { value: '2031-12-31' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm receipt for request req-out' }))
+    await waitFor(() => expect(client.rpc).toHaveBeenCalledWith('confirm_supply_request_receipt_with_inventory', { p_request_id: 'req-out', p_batches: [
+      { batch_number: 'LOT-A', quantity: 2, expiry_date: '2030-12-31' },
+      { batch_number: 'LOT-B', quantity: 3, expiry_date: '2031-12-31' },
+    ] }))
   })
 
   it('loads a private fulfilment photo on demand and releases its URL', async () => {

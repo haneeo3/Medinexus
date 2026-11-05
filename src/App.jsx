@@ -7,6 +7,7 @@ import Requests from './features/requests/Requests.jsx'
 import Facilities, { FacilityForm } from './features/facilities/Facilities.jsx'
 import Dashboard from './features/dashboard/Dashboard.jsx'
 import './App.css'
+import './premium.css'
 
 function Mark() {
   return <span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M16 5v22M5 16h22" stroke="currentColor" strokeWidth="5" strokeLinecap="round"/><circle cx="16" cy="16" r="13" stroke="currentColor" strokeWidth="1.5" opacity=".45"/></svg></span>
@@ -14,6 +15,17 @@ function Mark() {
 
 function Brand({ light = false }) {
   return <div className={`brand ${light ? 'brand-light' : ''}`}><Mark /><span>Medi<span className="brand-accent">Nexus</span><small>FIND IT. CONNECT. DELIVER.</small></span></div>
+}
+
+function NavIcon({ name }) {
+  const paths = {
+    overview: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
+    inventory: <><path d="M4 7 12 3l8 4v10l-8 4-8-4V7Z" /><path d="m4 7 8 4 8-4M12 11v10" /></>,
+    discovery: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></>,
+    requests: <><path d="M4 7h14m-3-3 3 3-3 3M20 17H6m3-3-3 3 3 3" /></>,
+    facilities: <><path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16M17 10h3v11M2 21h20M8 7h5M10.5 4.5v5M8 14h1M12 14h1M8 17h1M12 17h1" /></>,
+  }
+  return <svg className="nav-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }
 
 function Login({ client }) {
@@ -95,6 +107,7 @@ function Workspace({ workspace, email, onSignOut, signOutError, signingOut, onRe
     try { sessionStorage.setItem(`medinexus-page:${profile.id}:${workspace.facility?.id || 'platform'}`, page) } catch { /* Storage can be unavailable. */ }
   }, [page, profile.id, workspace.facility?.id])
   const [requestDraft, setRequestDraft] = useState(null)
+  const [requestInitialTab, setRequestInitialTab] = useState('incoming')
   const [requestBusy, setRequestBusy] = useState(false)
   const facilityName = facility?.name || 'Platform workspace'
   const verification = facility?.verification_status?.toLowerCase() || ''
@@ -111,20 +124,20 @@ function Workspace({ workspace, email, onSignOut, signOutError, signingOut, onRe
     <header className="topbar"><Brand /><div className="topbar-right"><div className="account-summary"><strong>{profile.full_name}</strong><span>{roleLabels[profile.role]}</span></div><button className="button button-outline" type="button" onClick={onSignOut} disabled={signingOut || requestBusy}>{signingOut ? 'Signing out…' : 'Sign out'}</button></div></header>
     <main className="workspace-main">
       {(facility || profile.role === 'PLATFORM_ADMIN') && <nav className="workspace-nav" aria-label="Workspace">
-        <button type="button" disabled={requestBusy} aria-current={page === 'overview' ? 'page' : undefined} onClick={() => setPage('overview')}>Overview</button>
-        {facility && <><button type="button" disabled={requestBusy} aria-current={page === 'inventory' ? 'page' : undefined} onClick={() => setPage('inventory')}>Inventory</button><button type="button" disabled={requestBusy} aria-current={page === 'discovery' ? 'page' : undefined} onClick={() => setPage('discovery')}>Find medicine</button><button type="button" disabled={requestBusy} aria-current={page === 'requests' ? 'page' : undefined} onClick={() => setPage('requests')}>Supply requests</button></>}
-        {['FACILITY_ADMIN', 'PLATFORM_ADMIN'].includes(profile.role) && <button type="button" disabled={requestBusy} aria-current={page === 'facilities' ? 'page' : undefined} onClick={() => setPage('facilities')}>{facility ? 'Facility profile' : 'Manage facilities'}</button>}
+        <button type="button" disabled={requestBusy} aria-current={page === 'overview' ? 'page' : undefined} onClick={() => setPage('overview')}><NavIcon name="overview" /><span>Overview</span></button>
+        {facility && <><button type="button" disabled={requestBusy} aria-current={page === 'inventory' ? 'page' : undefined} onClick={() => setPage('inventory')}><NavIcon name="inventory" /><span>Inventory</span></button><button type="button" disabled={requestBusy} aria-current={page === 'discovery' ? 'page' : undefined} onClick={() => setPage('discovery')}><NavIcon name="discovery" /><span>Find medicine</span></button><button type="button" disabled={requestBusy} aria-current={page === 'requests' ? 'page' : undefined} onClick={() => setPage('requests')}><NavIcon name="requests" /><span>Supply requests</span></button></>}
+        {['FACILITY_ADMIN', 'PLATFORM_ADMIN'].includes(profile.role) && <button type="button" disabled={requestBusy} aria-current={page === 'facilities' ? 'page' : undefined} onClick={() => setPage('facilities')}><NavIcon name="facilities" /><span>{facility ? 'Facility profile' : 'Manage facilities'}</span></button>}
       </nav>}
       {signOutError && <p className="notice notice-error" role="alert">{signOutError}</p>}
-      {page === 'facilities' && ['FACILITY_ADMIN', 'PLATFORM_ADMIN'].includes(profile.role) ? <Facilities client={supabase} role={profile.role} facility={facility} onFacilityUpdated={setFacility} /> : page === 'inventory' && facility ? <Inventory client={supabase} facility={facility} role={profile.role} /> : page === 'discovery' && facility ? <Discovery client={supabase} facility={facility} role={profile.role} onRequest={(draft) => { setRequestDraft(draft); setPage('requests') }} /> : page === 'requests' && facility ? <Requests client={supabase} facility={facility} role={profile.role} draft={requestDraft} onDraftCleared={() => setRequestDraft(null)} onBusyChange={setRequestBusy} /> : <>
+      {page === 'facilities' && ['FACILITY_ADMIN', 'PLATFORM_ADMIN'].includes(profile.role) ? <Facilities client={supabase} role={profile.role} facility={facility} onFacilityUpdated={setFacility} /> : page === 'inventory' && facility ? <Inventory client={supabase} facility={facility} role={profile.role} /> : page === 'discovery' && facility ? <Discovery client={supabase} facility={facility} role={profile.role} onRequest={(draft) => { setRequestDraft(draft); setPage('requests') }} /> : page === 'requests' && facility ? <Requests client={supabase} facility={facility} role={profile.role} draft={requestDraft} initialTab={requestInitialTab} onDraftCleared={() => setRequestDraft(null)} onBusyChange={setRequestBusy} /> : <>
       <div className="workspace-heading"><div><p className="section-tag">YOUR WORKSPACE</p><h1>Welcome, {profile.full_name.split(' ')[0]}.</h1><p>You’re signed in to your MediNexus workspace.</p></div><span className="access-chip"><span className="status-dot" /> Active account</span></div>
       <section className="facility-panel" aria-labelledby="facility-heading">
         <div className="panel-icon" aria-hidden="true">✚</div><div className="facility-copy"><span className="section-tag">{facility ? 'YOUR FACILITY' : 'YOUR ACCOUNT'}</span><h2 id="facility-heading">{facilityName}</h2><p>{facility ? facility.address : 'Platform-wide administration'}</p></div>
         {facility && <div className="verification"><span>Platform verification</span><strong>{verification}</strong></div>}
       </section>
+      {facility && <Dashboard client={supabase} facility={facility} role={profile.role} onNavigate={(target) => { if (target === 'requests') setRequestInitialTab(facility.facility_type === 'CLINIC' ? 'outgoing' : 'incoming'); setPage(target) }} />}
       <div className="workspace-grid"><section className="info-panel"><div className="panel-header"><div><p className="section-tag">ACCOUNT DETAILS</p><h2>Your access</h2></div><span className="mini-icon" aria-hidden="true">↗</span></div><dl><div><dt>Signed in as</dt><dd>{email}</dd></div><div><dt>Role</dt><dd>{roleLabels[profile.role]}</dd></div><div><dt>Access area</dt><dd>{roleDescriptions[profile.role]}</dd></div></dl><p className="panel-footnote">Actions are checked by the server for your role and facility.</p></section>
       <section className="info-panel next-panel"><div className="panel-header"><div><p className="section-tag">FACILITY TOOLS</p><h2>Your workspace</h2></div><span className="mini-icon" aria-hidden="true">✦</span></div><p>Explore the tools available in your facility workspace.</p><div className="next-list"><div><span className="list-number">01</span><span>Manage facility inventory</span><small>Available</small></div><div><span className="list-number">02</span><span>Find medicine availability</span><small>Available</small></div><div><span className="list-number">03</span><span>Coordinate supply requests</span><small>Available</small></div></div></section></div>
-      {facility && <Dashboard client={supabase} facility={facility} />}
       </>}
       <p className="workspace-footer">MediNexus · Find it. Connect. Deliver.</p>
     </main>

@@ -31,7 +31,7 @@ export async function loadWorkspace(client, userId) {
   if (profile.role === 'PLATFORM_ADMIN') return { profile, facility: null }
   if (!profile.facility_id) throw new Error('Your account has no facility. Please contact your administrator.')
   let { data: facility, error: facilityError } = await client.from('facility_directory')
-    .select('id, name, facility_type, address, latitude, longitude, image_url, operational_status, verification_status')
+    .select('id, name, facility_type, address, latitude, longitude, image_url, operational_status, verification_status, facility_type_details')
     .eq('id', profile.facility_id).maybeSingle()
   if (facilityError && ['42P01', 'PGRST205'].includes(facilityError.code)) {
     const fallback = await client.from('facilities').select('id, name, facility_type, address, operational_status')

@@ -66,6 +66,32 @@ describe('dashboard data', () => {
 })
 
 describe('facility dashboard screen', () => {
+  it.each([
+    ['PHARMACY', ['Manage inventory', 'Review incoming requests'], 'Find medicine'],
+    ['CLINIC', ['Find medicine', 'Review outgoing requests'], 'Manage inventory'],
+    ['HOSPITAL', ['Find medicine', 'Manage inventory'], 'Supply requests'],
+  ])('highlights %s priorities while keeping all tools available', async (facility_type, priorityLabels, sharedLabel) => {
+    const onNavigate = vi.fn()
+    render(<Dashboard client={makeClient().client} facility={{ ...facility, facility_type }} onNavigate={onNavigate} />)
+    expect(screen.getByRole('heading', { name: /priorities/i })).toBeInTheDocument()
+    for (const label of [...priorityLabels, sharedLabel]) expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: priorityLabels[0] }))
+    const pageByLabel = { 'Manage inventory': 'inventory', 'Review incoming requests': 'requests', 'Review outgoing requests': 'requests', 'Find medicine': 'discovery', 'Supply requests': 'requests' }
+    expect(onNavigate).toHaveBeenCalledWith(pageByLabel[priorityLabels[0]])
+  })
+
+  it('keeps the existing dashboard fallback when facility type is missing', async () => {
+    const { client } = makeClient()
+    render(<Dashboard client={client} facility={facility} />)
+    expect(screen.queryByRole('region', { name: /priorities/i })).not.toBeInTheDocument()
+    expect(screen.getByText('FACILITY OVERVIEW')).toBeInTheDocument()
+    expect(await screen.findByText('Batch LOT-LOW · 2 / 3 capsule available / threshold')).toBeInTheDocument()
+  })
+
+  it('allows priority actions when the optional navigation callback is unavailable', () => {
+    render(<Dashboard client={makeClient().client} facility={{ ...facility, facility_type: 'CLINIC' }} />)
+    expect(() => fireEvent.click(screen.getByRole('button', { name: 'Find medicine' }))).not.toThrow()
+  })
   it('shows real stock and incoming/outgoing request summaries', async () => {
     const { client } = makeClient()
     render(<Dashboard client={client} facility={facility} />)

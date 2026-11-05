@@ -55,6 +55,7 @@ export function batchStatus(batch, now = new Date()) {
 export function inventoryError(error) {
   if (error?.code === '42501') return 'You do not have permission to make this change.'
   if (error?.code === '23505') return 'A batch with this number already exists for this medicine.'
+  if (error?.code === 'P0001') return 'Several catalogue entries match these formulation details. Ask a facility administrator to resolve the duplicate catalogue entries before adding this batch.'
   if (error?.code === 'P0002') return 'This batch no longer exists. Refresh and try again.'
   if (error?.code === '22023') {
     if (error.message?.includes('reserved stock')) return 'The change would affect reserved stock. Check the available quantity and try again.'
